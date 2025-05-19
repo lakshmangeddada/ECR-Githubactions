@@ -6,7 +6,7 @@ on:
                 required: false
                 type: string
                 default: 'Dockerfile'
-            aws-destiantion-account:
+            aws-destination-account:
                 required: true
                 type: string
                 default: "none"
@@ -45,7 +45,7 @@ jobs:
                 echo "Image Suffix: ${image_suffix}"
 
                 #Login to ECR to fetch image from AWS ECR
-                aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ inputs.aws-destiantion-account }}.dkr.ecr.us-east-1.amazonaws.com
+                aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ AWS_DESTINATION_ACCOUNT }}.dkr.ecr.us-east-1.amazonaws.com
 
                 #Build the Dockerfile
                 docker build \
