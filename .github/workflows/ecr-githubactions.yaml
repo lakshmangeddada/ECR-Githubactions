@@ -14,7 +14,7 @@ on:
                 required: true
                 type: string
                 default: "none"
-            environment-deployement-url:
+            environment-deployment-url:
                 required: true
                 type: string
                 default: "none"
@@ -41,7 +41,7 @@ jobs:
                 # Docker Build command here     #####
                 ##############################
                 cd "${DOCKERFILE_PATH}"
-                image_suffix=$(echo #{DOCKERFILE_PATH} | sed -e 's/\//-/g')
+                image_suffix=$(echo ${DOCKERFILE_PATH} | sed -e 's/\//-/g')
                 echo "Image Suffix: ${image_suffix}"
 
                 #Login to ECR to fetch image from AWS ECR
@@ -66,12 +66,16 @@ jobs:
             - name: DEV branch only - Docker push to Dev ECR
               if: github.ref != 'refs/heads/dev'
               env:
-                AWS_DESTINATION_ACCOUNT: ${{ inputs.aws-destiantion-account }}
+                AWS_DESTINATION_ACCOUNT: ${{ inputs.aws-destination-account }}
                 AWS_DESTINATION_REPOSITORY: ${{ inputs.aws-destination-repository }}
                 ECR_REGION: us-east-1
 
               run: |
-                CREDS=$( aws sts assume-role-arn "arn:aws:iam::${{ AWS_DESTINATION_ACCOUNT }}:role/app-uai3031404/uai3031404-dev-genai-legacy-jenkins-assume-role" --role-session-name "ghrunner" --external-id "${{ secrets.AWS_EXTERNAL_ID }}" --duration-seconds 3600 )
+                CREDS=$( aws sts assume-role \
+                --role-arn "arn:aws:iam::${{ AWS_DESTINATION_ACCOUNT }}:role/app-uai3031404/uai3031404-dev-genai-legacy-jenkins-assume-role" \
+                --role-session-name "ghrunner" \
+                --external-id "${{ secrets.AWS_EXTERNAL_ID }}" \
+                --duration-seconds 3600 )
                 
                 export AWS_ACCESS_KEY_ID=$(echo $CREDS | jq -r '.Credentials.AccessKeyId');
                 export AWS_SECRET_ACCESS_KEY=$(echo $CREDS | jq -r '.Credentials.SecretAccessKey');
