@@ -1,0 +1,95 @@
+name: Image Build_Deploy Dev
+on: 
+    workflow_call:
+        inputs:
+            dockerfile-path:
+                required: false
+                type: string
+                default: 'Dockerfile'
+            aws-destiantion-account:
+                required: true
+                type: string
+                default: "none"
+            aws-destination-repository:
+                required: true
+                type: string
+                default: "none"
+            environment-deployement-url:
+                required: true
+                type: string
+                default: "none"
+env:
+    IMAGE_NAME: "${{ github.event.repository.name }}_${{ inputs.dockerfile-path }}"
+    IMAGE_TAG: ${{ github.run_id }}
+
+    ##JOBS####
+jobs:
+    Docker-Build-Deploy-To-ECR:
+        name: Image Build
+        if: github.ref != 'refs/heads/prod'
+        runs-on: ubuntu-latest
+        steps: 
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Docker Build
+              env:
+                DOCKERFILE_PATH: ${{ inputs.dockerfile-path }}
+                GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                ##############################
+                # Docker Build command here     #####
+                ##############################
+                cd "${DOCKERFILE_PATH}"
+                image_suffix=$(echo #{DOCKERFILE_PATH} | sed -e 's/\//-/g')
+                echo "Image Suffix: ${image_suffix}"
+
+                #Login to ECR to fetch image from AWS ECR
+                aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ inputs.aws-destiantion-account }}.dkr.ecr.us-east-1.amazonaws.com
+
+                #Build the Dockerfile
+                docker build \
+                    -f Dockerfile \
+                    --label "github-org=${{ github.repository_owner }}" \
+                    --secret id=GH_TOKEN \
+                    -t "${IMAGE_NAME}:${IMAGE_TAG}" \
+                    --network=host --no-cache \
+                    .
+                docker history --no trunc "${IMAGE_NAME}:${IMAGE_TAG}" | tail -n +2 | awk '{print $1}' | xargs docker rmi
+
+            #################################
+            #ECR PUSH ###
+            ###Requirements:
+            ##User must specify github actions secret ${{secrets.AWS_EXTERNAL_ID}}
+            ##
+            #####################################
+            - name: DEV branch only - Docker push to Dev ECR
+              if: github.ref != 'refs/heads/dev'
+              env:
+                AWS_DESTINATION_ACCOUNT: ${{ inputs.aws-destiantion-account }}
+                AWS_DESTINATION_REPOSITORY: ${{ inputs.aws-destination-repository }}
+                ECR_REGION: us-east-1
+
+              run: |
+                CREDS=$( aws sts assume-role-arn "arn:aws:iam::${{ AWS_DESTINATION_ACCOUNT }}:role/app-uai3031404/uai3031404-dev-genai-legacy-jenkins-assume-role" --role-session-name "ghrunner" --external-id "${{ secrets.AWS_EXTERNAL_ID }}" --duration-seconds 3600 )
+                
+                export AWS_ACCESS_KEY_ID=$(echo $CREDS | jq -r '.Credentials.AccessKeyId');
+                export AWS_SECRET_ACCESS_KEY=$(echo $CREDS | jq -r '.Credentials.SecretAccessKey');
+                export AWS_SESSION_TOKEN=$(echo $CREDS | jq -r '.Credentials.SessionToken');
+
+                aws ecr get-login-password --region $ECR_REGION | docker login --username AWS --password-stdin ${{ AWS_DESTINATION_ACCOUNT }}.dkr.ecr.$ECR_REGION.amazonaws.com
+
+                #Push version image first
+                docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "${AWS_DESTINATION_ACCOUNT}.dkr.ecr.${ECR_REGION}.amazonaws.com/${AWS_DESTINATION_REPOSITORY}:${IMAGE_TAG}"
+                docker push "${AWS_DESTINATION_ACCOUNT}.dkr.ecr.${ECR_REGION}.amazonaws.com/${AWS_DESTINATION_REPOSITORY}:${IMAGE_TAG}"
+
+                #next tag the latest image
+                docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "${AWS_DESTINATION_ACCOUNT}.dkr.ecr.${ECR_REGION}.amazonaws.com/${AWS_DESTINATION_REPOSITORY}:latest"
+
+                #delete the old image
+                aws ecr batch-delete-image --repository-name "${AWS_DESTINATION_REPOSITORY}" --image-ids imageTag=latest
+
+                #Push latest image
+                docker push "${AWS_DESTINATION_ACCOUNT}.dkr.ecr.${ECR_REGION}.amazonaws.com/${AWS_DESTINATION_REPOSITORY}:latest"
+
+                
